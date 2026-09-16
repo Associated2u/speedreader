@@ -94,9 +94,28 @@ def test_config_schema():
     # so there is no left_click key; guard against it creeping back.
     assert "left_click" not in R.DEFAULTS
     assert set(R.DEFAULTS) == {"voice", "rate", "pitch", "style", "pacer",
-                               "redact", "earcons", "code"}
+                               "redact", "earcons", "code", "numbers",
+                               "win_bg", "win_text", "win_live",
+                               "win_sentence", "win_word"}
+    assert set(R.PRESETS) == {"easy", "medium", "fast", "superfast"}
     assert R.DEFAULTS["voice"].endswith("+klatt")
     assert R.DEFAULTS["style"] == "verbatim"
+
+def test_numbers():
+    R.NUM_MODE = "skip"
+    keep = {"$5,000,000", "2026", "42", "98%", "GPT-4", "COVID-19", "mp3"}
+    drop = {"10240", "1.0.5", "98:59:49", "e3b0c44298fc", "5,000,000"}
+    for w in keep:
+        assert R._speak_number_token(w) == w, f"should keep {w}"
+    for w in drop:
+        assert R._speak_number_token(w) is None, f"should drop {w}"
+    R.NUM_MODE = "normal"
+    assert R._speak_number_token("10240") == "10240"
+    R.NUM_MODE = "digits"
+    assert R._speak_number_token("10240") == "1 0 2 4 0 "
+    R.NUM_MODE = "skip"
+    # a whole span
+    assert R._filter_numbers("build 10240 cost $5 in 2026") == "build cost $5 in 2026"
 
 def test_code_mode():
     R.CODE_MODE = "describe"

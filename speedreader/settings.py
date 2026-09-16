@@ -30,6 +30,10 @@ VOICES = [                      # the shortlist the author actually auditioned, 
 SAMPLE = ("The reader now speaks every word, and the follow-along window "
           "lights each one as it is said.")
 
+def _hex(rgba):
+    return "#%02x%02x%02x" % (round(rgba.red * 255), round(rgba.green * 255),
+                              round(rgba.blue * 255))
+
 def wpm(rate):
     """Linear fit to klatt as MEASURED on 2026-09-04: rate 20->267, 40->329,
     60->395, 80->448, 100->506. Slope 3.0 wpm per rate unit."""
@@ -80,6 +84,14 @@ class Settings(Gtk.Window):
         self.rate_hint.set_markup(f"<small>≈ {wpm(self.cfg['rate'])} words per minute</small>")
         grid.attach(self.rate_hint, 1, row[0], 2, 1); row[0] += 1
 
+        pb = Gtk.Box(spacing=8)
+        for name in ("easy", "medium", "fast", "superfast"):
+            label = "Super fast" if name == "superfast" else name.capitalize()
+            btn = Gtk.Button(label=label)
+            btn.connect("clicked", lambda _w, n=name: self.rate.set_value(R.PRESETS[n]))
+            pb.pack_start(btn, False, False, 0)
+        add("Presets", pb, "one-tap speed - sets the rate above")
+
         self.pitch = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -100, 100, 1)
         self.pitch.set_value(self.cfg["pitch"])
         add("Pitch", self.pitch)
@@ -95,6 +107,17 @@ class Settings(Gtk.Window):
             self.style[name] = b; sb.pack_start(b, False, False, 0)
         add("Reads", sb, "only <b>verbatim</b> can drive the follow-along window - a skimmed voice leaves the eye nothing to follow")
 
+        # ---- numbers -------------------------------------------------------
+        self.numbers = {}
+        nb = Gtk.Box(spacing=10); nf = None
+        for name, blurb in (("skip", "skip unimportant"), ("normal", "read all"),
+                            ("digits", "digit by digit")):
+            b = Gtk.RadioButton.new_with_label_from_widget(nf, f"{name} ({blurb})")
+            nf = nf or b
+            b.set_active(self.cfg.get("numbers", "skip") == name)
+            self.numbers[name] = b; nb.pack_start(b, False, False, 0)
+        add("Numbers", nb, "IDs, versions, timestamps, hashes - kept, dropped, or read as digits; currency, %, years and small counts are always read")
+
         # A reminder of the fixed click model - not configurable, by request.
         add("Clicks", Gtk.Label(
             label="left = read aloud     right = read-along window     middle / hold = these settings",
@@ -107,6 +130,25 @@ class Settings(Gtk.Window):
         self.code    = Gtk.CheckButton(label="Read code blocks out"); self.code.set_active(self.cfg.get("code") == "speak")
         for w in (self.redact, self.earcons, self.code): tb.pack_start(w, False, False, 0)
         add("", tb)
+
+        # ---- colours -------------------------------------------------------
+        self.colors = {}
+        cb = Gtk.Box(spacing=6)
+        for key, tip in (("win_bg", "window"), ("win_text", "text"),
+                         ("win_sentence", "sentence"), ("win_word", "word"),
+                         ("win_live", "read text")):
+            rgba = Gdk.RGBA(); rgba.parse(self.cfg.get(key, R.DEFAULTS[key]))
+            btn = Gtk.ColorButton.new_with_rgba(rgba)
+            btn.set_tooltip_text(tip)
+            self.colors[key] = btn
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+            lbl = Gtk.Label(); lbl.set_markup(f"<small>{tip}</small>")
+            lbl.get_style_context().add_class("dim-label")
+            box.pack_start(btn, False, False, 0); box.pack_start(lbl, False, False, 0)
+            cb.pack_start(box, False, False, 0)
+        tst = Gtk.Button(label="Test"); tst.connect("clicked", self.on_test_colours)
+        cb.pack_start(tst, False, False, 8)
+        add("Window colours", cb, "the follow-along window")
 
         # ---- buttons -------------------------------------------------------
         bb = Gtk.Box(spacing=8); bb.set_halign(Gtk.Align.END)
@@ -135,7 +177,17 @@ class Settings(Gtk.Window):
             rate=int(self.rate.get_value()), pitch=int(self.pitch.get_value()),
             style=next(k for k, b in self.style.items() if b.get_active()),
             redact=self.redact.get_active(), earcons=self.earcons.get_active(),
-            code="speak" if self.code.get_active() else "describe")
+            code="speak" if self.code.get_active() else "describe",
+            numbers=next(k for k, b in self.numbers.items() if b.get_active()),
+            **{k: _hex(btn.get_rgba()) for k, btn in self.colors.items()})
+
+    def on_test_colours(self, _b):
+        import json
+        cols = {k: _hex(btn.get_rgba()) for k, btn in self.colors.items()}
+        env = dict(os.environ, SR_PREVIEW=json.dumps(cols))
+        subprocess.Popen([sys.executable, os.path.join(HERE, "pacer.py"), "--preview"],
+                         env=env, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def on_test(self, _b):
         v = self.values()

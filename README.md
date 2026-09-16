@@ -42,7 +42,8 @@ Left or right again while it's talking stops it.
   a code block, a buzz for a warning.
 - **Redacts secrets before speaking** — API keys, tokens, credentialed URLs,
   private-key blocks. You hear "anthropic key redacted"; the secret isn't said
-  into the room.
+  into the room. It's best-effort, not a guarantee — read
+  [docs/SECURITY.md](docs/SECURITY.md) before you trust it with anything.
 - **Settings in a window** — voice, speed with a live wpm readout, pitch,
   level. Middle-click or hold.
 

@@ -16,12 +16,35 @@ sound and the whole effect inverts.
 import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, Gdk, GLib, Pango
+import os, json
 
-BG      = "#141417"
-FG_DIM  = "#5c6068"
-FG_HOT  = "#f2f4f8"
-HOT_BG  = {"heading": "#2a3550", "warn": "#4a2733", "code": "#22313a",
-           "bullet": "#26313d", "bold": "#2b3040", "lead": "#242833"}
+# Palette defaults. Overridable per-key from the config (keys below) or, for
+# the live Test preview, from the SR_PREVIEW env var (same keys as JSON).
+PALETTE = {
+    "win_bg":       "#141417",   # window background
+    "win_text":     "#5c6068",   # dimmed (not-yet-read) text
+    "win_live":     "#f2f4f8",   # the sentence being read
+    "win_sentence": "#2b3040",   # highlight behind the current sentence
+    "win_word":     "#5a6fb5",   # the word cursor
+}
+
+def load_palette():
+    pal = dict(PALETTE)
+    env = os.environ.get("SR_PREVIEW")
+    if env:                                    # live preview from the settings dialog
+        try: pal.update({k: v for k, v in json.loads(env).items() if k in PALETTE})
+        except Exception: pass
+        return pal
+    try:                                       # else the saved config
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "reader", os.path.join(os.path.dirname(os.path.abspath(__file__)), "reader.py"))
+        R = importlib.util.module_from_spec(spec); spec.loader.exec_module(R)
+        cfg = R.load_config()
+        pal.update({k: cfg[k] for k in PALETTE if k in cfg})
+    except Exception:
+        pass
+    return pal
 
 
 def bt_delay_ms(default=0) -> int:
@@ -62,12 +85,13 @@ class Pacer(Gtk.Window):
         self.set_position(Gtk.WindowPosition.CENTER)
         self.set_keep_above(True)
 
+        self.pal = load_palette()
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.add(box)
 
         self.hdr = Gtk.Label(xalign=0)
         self.hdr.set_markup(
-            f"<span foreground='{FG_DIM}' size='small'>  {header}   "
+            f"<span foreground='{self.pal['win_text']}' size='small'>  {header}   "
             f"sync +{self.delay} ms   ·   Esc to stop</span>")
         box.pack_start(self.hdr, False, False, 8)
 
@@ -87,26 +111,28 @@ class Pacer(Gtk.Window):
 
         self.buf = self.tv.get_buffer()
         self.buf.set_text(text)
-        self.dim = self.buf.create_tag("dim", foreground=FG_DIM)
+        self.dim = self.buf.create_tag("dim", foreground=self.pal["win_text"])
         self.buf.apply_tag(self.dim, self.buf.get_start_iter(), self.buf.get_end_iter())
-        self.hot = {k: self.buf.create_tag(f"hot_{k}", foreground=FG_HOT,
-                                           background=v, weight=Pango.Weight.SEMIBOLD)
-                    for k, v in HOT_BG.items()}
+        kinds = ("heading", "warn", "code", "bullet", "bold", "lead", "table")
+        self.hot = {k: self.buf.create_tag(
+            f"hot_{k}", foreground=self.pal["win_live"],
+            background=self.pal["win_sentence"], weight=Pango.Weight.SEMIBOLD)
+            for k in kinds}
         self._live = None
         self._word = None
         # The word cursor sits ON TOP of the line highlight: line = where you
         # are, word = exactly where the voice is. Lose your place, look for the
         # bright one.
         self.hotword = self.buf.create_tag("hotword", foreground="#ffffff",
-                                           background="#5a6fb5",
+                                           background=self.pal["win_word"],
                                            underline=Pango.Underline.SINGLE,
                                            weight=Pango.Weight.BOLD)
         self._style_markdown(text)
 
         css = Gtk.CssProvider()
         css.load_from_data((
-            f"window,textview{{background:{BG};}}"
-            f"textview text{{background:{BG};}}"
+            f"window,textview{{background:{self.pal['win_bg']};}}"
+            f"textview text{{background:{self.pal['win_bg']};}}"
             # GTK3 CSS has NO line-height property - it rejects the whole
             # stylesheet, not just that line. Line spacing is set on the
             # TextView with pixels_above/below_lines instead.
@@ -217,3 +243,35 @@ class Pacer(Gtk.Window):
         try: Gtk.main_quit()
         except Exception: pass
         return False
+
+
+if __name__ == "__main__":
+    import sys, re, itertools
+    if "--preview" in sys.argv:
+        SAMPLE = ("## SpeedReader preview\n\n"
+                  "This is what the follow-along window looks like. Everything is "
+                  "dimmed except the **sentence being read**, and a bright cursor "
+                  "marks the exact word as it is spoken.\n\n"
+                  "- The window colour, the text, the sentence highlight and the "
+                  "word cursor are all yours to set.\n"
+                  "- Pick colours in the settings window, then press Test.\n\n"
+                  "Press Escape to close this preview.")
+        win = Pacer(SAMPLE, header="preview", delay_ms=0)
+        spans, off = [], 0
+        for para in SAMPLE.split("\n"):
+            if para.strip() and not para.startswith("|"):
+                a = SAMPLE.index(para, off)
+                spans.append((a, a + len(para))); off = a + len(para)
+        cyc = itertools.cycle(spans)
+        def tick():
+            a, b = next(cyc)
+            win._light("lead", a, b)
+            for i, m in enumerate(re.finditer(r"\S+", SAMPLE[a:b])):
+                wa, wb = a + m.start(), a + m.end()
+                GLib.timeout_add(140 * i,
+                                 lambda wa=wa, wb=wb: (win._light_word(wa, wb), False)[1])
+            return True
+        tick()
+        GLib.timeout_add(2800, tick)
+        win.show_all()
+        Gtk.main()

@@ -32,9 +32,16 @@ CONFIG  = os.path.join(os.environ.get("XDG_CONFIG_HOME",
 # Defaults are what testing settled on, not neutral guesses: the klatt voice
 # stays intelligible at speed where natural-sounding ones smear, and only
 # verbatim can drive the follow-along window. See docs/WHY-KLATT.md.
+# Speed presets (rate values; klatt wpm in comments). Named so a newcomer
+# does not have to know what "rate 68" means.
+PRESETS = {"easy": 15, "medium": 40, "fast": 68, "superfast": 95}   # ~250/330/410/490 wpm
+
 DEFAULTS = {"voice": "English (America)+klatt", "rate": 30, "pitch": 0,
             "style": "verbatim", "pacer": "auto",
-            "redact": True, "earcons": True, "code": "describe"}
+            "redact": True, "earcons": True, "code": "describe",
+            "numbers": "skip",
+            "win_bg": "#141417", "win_text": "#5c6068", "win_live": "#f2f4f8",
+            "win_sentence": "#2b3040", "win_word": "#5a6fb5"}
 
 def load_config() -> dict:
     cfg = dict(DEFAULTS)
@@ -58,7 +65,14 @@ def save_config(**kw) -> dict:
 # that something was skipped rather than silently losing a sentence.
 REDACT = [
     (re.compile(r'\bsk-ant-[A-Za-z0-9_\-]{20,}'),                 'anthropic key'),
-    (re.compile(r'\bsk-[A-Za-z0-9]{32,}'),                        'api key'),
+    (re.compile(r'\bsk-(?:proj-)?[A-Za-z0-9_\-]{20,}'),           'api key'),
+    (re.compile(r'\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}'), 'json web token'),
+    (re.compile(r'\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}'),        'stripe key'),
+    (re.compile(r'\bya29\.[A-Za-z0-9_\-]{20,}'),                  'google oauth token'),
+    (re.compile(r'\bSG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}'), 'sendgrid key'),
+    (re.compile(r'\bnpm_[A-Za-z0-9]{36}'),                        'npm token'),
+    (re.compile(r'\bpypi-[A-Za-z0-9_\-]{16,}'),                   'pypi token'),
+    (re.compile(r'\bglpat-[A-Za-z0-9_\-]{16,}'),                  'gitlab token'),
     (re.compile(r'\b(?:ghp|gho|ghs|ghu)_[A-Za-z0-9]{30,}'),       'github token'),
     (re.compile(r'\bgithub_pat_[A-Za-z0-9_]{50,}'),               'github token'),
     (re.compile(r'\bxox[baprs]-[A-Za-z0-9\-]{10,}'),              'slack token'),
@@ -152,6 +166,54 @@ GIST_KINDS = {"heading", "warn", "code"}
 # Spelling out a shell path aloud is unusable, so a fenced block becomes a
 # one-line description by default. --code speak overrides that.
 CODE_MODE = "describe"
+
+# Number handling. espeak verbalises "10240" as "ten thousand two hundred
+# forty" and "98594920" as tens of millions - useless for IDs, versions,
+# timestamps, hashes, MAC-like strings. Modes:
+#   normal  read every number as espeak would
+#   skip    drop unimportant numbers (default) - keep currency, %, years, small
+#   digits  read unimportant numbers digit by digit ("one zero two four zero")
+NUM_MODE = "skip"
+_CURRENCY_UNIT = re.compile(r'[$£€¥%]|(?:dollar|cent|euro|pound|percent)', re.I)
+_YEAR         = re.compile(r'(?:19|20)\d{2}')
+_SMALL_INT    = re.compile(r'\d{1,4}')          # tested with fullmatch, not search
+
+def _filter_numbers(text):
+    """Apply the number policy to a plain (non word-synced) span."""
+    if NUM_MODE == "normal":
+        return text
+    out = []
+    for w in text.split():
+        r = _speak_number_token(w)
+        if r is not None:
+            out.append(r)
+    return " ".join(out)
+
+def _speak_number_token(w):
+    """Return the spoken form of a whitespace token, or None to skip it.
+    Only touches tokens that actually contain a digit."""
+    if NUM_MODE == "normal" or not any(c.isdigit() for c in w):
+        return w
+    # currency, %, or an explicit unit anywhere in the token -> important, keep
+    if _CURRENCY_UNIT.search(w):
+        return w
+    core = w.strip('.,;:!?()[]{}"\'\u2019\u201c\u201d')
+    # a WHOLE-token year or small integer is meaningful; a small int that is
+    # merely a piece of "1.0.5" or "98:59" is not, so test the whole core.
+    if _YEAR.fullmatch(core) or _SMALL_INT.fullmatch(core):
+        return w
+    # Only skip a token that is PURELY a number / separator-id / hex hash. A
+    # token with letters is a word that happens to carry a digit (GPT-4, mp3,
+    # COVID-19, IPv6) - keep it, or we would delete real words.
+    alnum = re.sub(r'[^0-9A-Za-z]', '', w)
+    letters = sum(c.isalpha() for c in alnum)
+    is_hex = len(alnum) >= 6 and re.fullmatch(r'[0-9a-fA-F]+', alnum) is not None
+    if letters and not is_hex:
+        return w
+    if NUM_MODE == "digits":
+        return re.sub(r'\d', lambda m: m.group() + " ", w)
+    return None
+
 
 def _spans(md: str, level: str):
     """Yield (kind, spoken_text, src_start, src_end).
@@ -307,8 +369,12 @@ class Speaker:
         out = []
         for m in re.finditer(r'\S+', source[a:b]):
             spoken = _clean(m.group())
-            if spoken:
-                out.append((spoken, a + m.start(), a + m.end()))
+            if not spoken:
+                continue
+            spoken = _speak_number_token(spoken)
+            if spoken is None:          # an unimportant number, skipped
+                continue
+            out.append((spoken, a + m.start(), a + m.end()))
         return out
 
     @staticmethod
@@ -356,13 +422,19 @@ class Speaker:
             dr, dp, ec = VOICE.get(kind, (0, 0, None))
             if ec and not self.quiet and not self.dry:
                 subprocess.run(["paplay", EARCON[ec]], check=False)
-            if self.dry:
-                print(f"  [{kind:7}] {text}")
+            tokens = None
+            if self.word_sync and self.source is not None and kind != "code":
+                tokens = self._tokens(self.source, sa, sb)
+                spoken_text = " ".join(t for t, _, _ in tokens)
             else:
-                tokens = None
-                if self.word_sync and self.source is not None and kind != "code":
-                    tokens = self._tokens(self.source, sa, sb)
-                self._say(text, self.rate + dr, dp, tokens)
+                spoken_text = _filter_numbers(text)
+            if self.dry:
+                # show what would be SPOKEN (numbers filtered), which is the
+                # point of a dry run - the screen keeps the numbers, the voice
+                # does not.
+                print(f"  [{kind:7}] {spoken_text}")
+            else:
+                self._say(spoken_text, self.rate + dr, dp, tokens)
             self.spoken += 1
 
     def halt(self):
@@ -613,8 +685,13 @@ def main():
     ap.add_argument("--style", default=_cfg["style"],
                     choices=["verbatim", "skim", "structure", "gist"])
     ap.add_argument("--rate", type=int, default=_cfg["rate"], help="-100..100 (espeak)")
+    ap.add_argument("--preset", choices=list(PRESETS),
+                    help="speed preset: easy | medium | fast | superfast")
     ap.add_argument("--voice", default=_cfg["voice"], help="spd-say -L name")
     ap.add_argument("--pitch", type=int, default=_cfg["pitch"])
+    ap.add_argument("--numbers", default=_cfg["numbers"],
+                    choices=["normal", "skip", "digits"],
+                    help="unimportant numbers: read all / drop / read as digits")
     ap.add_argument("--code", default=_cfg["code"], choices=["describe", "speak"],
                     help="fenced blocks: one-line summary, or read them out")
     ap.add_argument("--pacer", default=_cfg["pacer"], choices=["auto", "on", "off"],
@@ -626,8 +703,11 @@ def main():
     ap.add_argument("--dry", action="store_true", help="print spans, do not speak")
     a = ap.parse_args()
 
-    global CODE_MODE
+    global CODE_MODE, NUM_MODE
     CODE_MODE = a.code
+    NUM_MODE = a.numbers
+    if a.preset:
+        a.rate = PRESETS[a.preset]
 
     if a.settings:
         here = os.path.dirname(os.path.abspath(__file__))
