@@ -15,7 +15,7 @@ Design notes that are load-bearing:
 """
 from __future__ import annotations
 import os, re, sys, json, glob, math, wave, queue, struct, shutil, tempfile
-import threading, subprocess, argparse, time
+import threading, subprocess, argparse, time, signal
 
 HOME     = os.path.expanduser("~")
 # Claude Code keeps one JSONL transcript per session under a directory per
@@ -343,6 +343,8 @@ class Speaker:
         # is reached. Only meaningful for verbatim - a compressed span does not
         # contain the source's words, so there is nothing to mark.
         self.source, self.word_sync = source, word_sync
+        self.paused = False
+        self._pause_pending = False
         self.stop = threading.Event()
         self.spoken = 0
         self.client = None
@@ -357,13 +359,17 @@ class Speaker:
                     self.client.set_synthesis_voice(self.voice)
                 except Exception:
                     pass
-            if self.word_sync:
-                self.client.set_data_mode(speechd.DataMode.SSML)
+            self.client.set_data_mode(speechd.DataMode.SSML)
         self.t = threading.Thread(target=self._run, daemon=True)
         self.t.start()
 
     def push(self, kind, text, sa=0, sb=0): self.q.put((kind, text, sa, sb))
     def finish(self):                       self.q.put(None)
+
+    def request_pause_toggle(self):
+        """Called from a signal handler. Only sets a flag; the actual pause/
+        resume runs on the speaker thread so the SSIP socket has one writer."""
+        self._pause_pending = True
 
     @staticmethod
     def _tokens(source, a, b):
@@ -391,24 +397,40 @@ class Speaker:
         done = threading.Event()
         CT = self.speechd.CallbackType
         def cb(cbtype, index_mark=None):
-            if cbtype == CT.INDEX_MARK and tokens and self.on_word:
-                try:
-                    _, wa, wb = tokens[int(index_mark)]
-                    self.on_word(wa, wb)
-                except Exception:
-                    pass
+            if cbtype == CT.INDEX_MARK:
+                if self.on_word and tokens:
+                    try:
+                        _, wa, wb = tokens[int(index_mark)]
+                        if wa is not None:
+                            self.on_word(wa, wb)
+                    except Exception:
+                        pass
             elif cbtype in (CT.END, CT.CANCEL):
                 done.set()
         self.client.set_rate(max(-100, min(100, rate)))
         self.client.set_pitch(max(-100, min(100, pitch + self.pitch0)))
-        if self.word_sync:
-            from xml.sax.saxutils import escape
-            payload = self._ssml(tokens) if tokens else f"<speak>{escape(text)}</speak>"
+        from xml.sax.saxutils import escape
+        if tokens:
+            payload = self._ssml(tokens)
             events = (CT.INDEX_MARK, CT.END, CT.CANCEL)
         else:
-            payload, events = text, (CT.END, CT.CANCEL)
+            payload, events = f"<speak>{escape(text)}</speak>", (CT.END, CT.CANCEL)
         self.client.speak(payload, callback=cb, event_types=events)
         while not done.wait(0.05):
+            if self._pause_pending:
+                self._pause_pending = False
+                self.paused = not self.paused
+                try:
+                    self.client.pause() if self.paused else self.client.resume()
+                except Exception:
+                    pass
+                try:
+                    if self.paused:
+                        open(PAUSEFILE, "w").close()
+                    elif os.path.exists(PAUSEFILE):
+                        os.unlink(PAUSEFILE)
+                except Exception:
+                    pass
             if self.stop.is_set():
                 self.client.cancel(); return
 
@@ -426,16 +448,18 @@ class Speaker:
             dr, dp, ec = VOICE.get(kind, (0, 0, None))
             if ec and not self.quiet and not self.dry:
                 subprocess.run(["paplay", EARCON[ec]], check=False)
-            tokens = None
+            # Build word tokens for EVERY read, not just the pacer. The marks
+            # are what pause() can stop at - without them speech-dispatcher
+            # only pauses at the end of the utterance, so a plain read could
+            # not be paused mid-sentence. Highlight offsets are attached only
+            # when a pacer wants them.
             if self.word_sync and self.source is not None and kind != "code":
-                tokens = self._tokens(self.source, sa, sb)
+                tokens = self._tokens(self.source, sa, sb)      # (spoken, a, b)
                 spoken_text = " ".join(t for t, _, _ in tokens)
             else:
                 spoken_text = _filter_numbers(text)
+                tokens = [(w, None, None) for w in spoken_text.split()]
             if self.dry:
-                # show what would be SPOKEN (numbers filtered), which is the
-                # point of a dry run - the screen keeps the numbers, the voice
-                # does not.
                 print(f"  [{kind:7}] {spoken_text}")
             else:
                 self._say(spoken_text, self.rate + dr, dp, tokens)
@@ -446,6 +470,9 @@ class Speaker:
         if self.client:
             try: self.client.cancel()
             except Exception: pass
+        try:
+            if os.path.exists(PAUSEFILE): os.unlink(PAUSEFILE)
+        except Exception: pass
 
 # ================================================================= sources ==
 def src_selection() -> str:
@@ -588,6 +615,7 @@ def pick_auto(args) -> tuple[str, str]:
 
 # ==================================================================== main ==
 PIDFILE = os.path.join(STATEDIR, "reading.pid")
+PAUSEFILE = os.path.join(STATEDIR, "paused")
 
 def _running_pid():
     try:
@@ -670,10 +698,24 @@ def _on_term(_sig, _frm):
         sp.halt()
     sys.exit(0)
 
+def _on_pause(_sig, _frm):
+    for sp in _LIVE:
+        sp.request_pause_toggle()
+
+def cmd_playpause() -> int:
+    """Toggle pause on the running reader (SIGUSR1). Returns 1 if none runs."""
+    pid = _running_pid()
+    if not pid:
+        return 1
+    try:
+        os.kill(pid, signal.SIGUSR1); return 0
+    except Exception:
+        return 1
+
 def main():
-    import signal
     signal.signal(signal.SIGTERM, _on_term)
     signal.signal(signal.SIGINT, _on_term)
+    signal.signal(signal.SIGUSR1, _on_pause)
     ap = argparse.ArgumentParser(description="SpeedReader - speak text, fast")
     ap.add_argument("source", nargs="?", default="auto",
                     choices=["auto", *SOURCES, "file"], help="where to read from")
@@ -684,6 +726,12 @@ def main():
     ap.add_argument("--toggle", action="store_true",
                     help="stop if reading, otherwise --pick (bind this to one button)")
     ap.add_argument("--settings", action="store_true", help="open the settings window")
+    ap.add_argument("--playpause", action="store_true",
+                    help="pause/resume the current read")
+    ap.add_argument("--primary", action="store_true",
+                    help="button LEFT: read aloud, or pause/resume if already reading")
+    ap.add_argument("--secondary", action="store_true",
+                    help="button RIGHT: read-along window, or stop if already reading")
     ap.add_argument("--window", help="X window id to read (from xdotool selectwindow)")
     _cfg = load_config()
     ap.add_argument("--style", default=_cfg["style"],
@@ -718,6 +766,16 @@ def main():
         os.execv(sys.executable, [sys.executable, os.path.join(here, "settings.py")])
     if a.stop:
         return cmd_stop()
+    if a.playpause:
+        return cmd_playpause()
+    if a.primary:                      # left click
+        if _running_pid():
+            return cmd_playpause()     # reading -> pause/resume
+        a.pick = True; a.pacer = "off" # idle -> read aloud
+    if a.secondary:                    # right click
+        if _running_pid():
+            return cmd_stop()          # reading -> stop
+        a.pick = True; a.pacer = "on"  # idle -> read-along window
     if a.toggle:
         if _running_pid():
             return cmd_stop()

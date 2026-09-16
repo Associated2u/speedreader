@@ -16,13 +16,14 @@ cursor on the exact word.
 However you trigger it — the tray icon, a panel button, a hotkey — the model
 is the same:
 
-| action | does |
-|---|---|
-| **left** | read aloud |
-| **right** | read along in the follow-along window |
-| **middle**, or **hold** | settings |
+| action | idle | while reading |
+|---|---|---|
+| **left** | read aloud | **pause / resume** |
+| **right** | read along in the window | **stop** |
+| **middle**, or **hold** | settings | settings |
 
-Left or right again while it's talking stops it.
+So the left button *becomes a pause button* once a read starts — the glyph
+turns into ⏸, and to a ▶ while paused.
 
 ## What it does
 
@@ -66,7 +67,7 @@ sudo apt install tesseract-ocr ffmpeg
 Then:
 
 ```bash
-git clone https://github.com/YOUR-USER/speedreader && cd speedreader && bash install.sh
+git clone https://github.com/Associated2u/speedreader && cd speedreader && bash install.sh
 ```
 
 No root. Everything lands in `~/.local`. `bash uninstall.sh` removes it.
@@ -199,6 +200,31 @@ your place — not a speed-reading trainer.
 
 It's X11 and Linux. Wayland has no global selection or window targeting to
 build on.
+
+## CPU or GPU, and customizing
+
+**SpeedReader is CPU-only.** The voice is espeak-ng — classic formant
+synthesis, about two megabytes, no machine-learning model, no GPU, a fraction
+of one core. There is nothing to configure for hardware; it runs the same on a
+laptop with no discrete graphics as on anything else, and it works offline.
+
+The everyday settings — voice, speed, presets, pitch, reading level, number
+handling, redaction, window colours — live in the **settings window**
+(middle-click, or `speedreader --settings`) and are stored in one JSON file
+(`~/.config/speedreader/config.json`). No code editing for any of that.
+
+A few things are deliberately **in code**, not settings, because they are
+judgement calls, not preferences:
+
+- the redaction patterns (`REDACT` in `reader.py`),
+- the number-importance rules (`_speak_number_token` in `reader.py`),
+- the compression levels and earcons.
+
+To change those, edit `reader.py` — or, if you use an AI coding agent (Claude
+Code, etc.), point it at this repo and describe the change. [AGENTS.md](AGENTS.md)
+documents the layout so an agent can modify it safely. Everything is plain
+Python in `speedreader/`, and `tests/test_reader.py` (no pytest needed) is the
+guardrail — run it after any change.
 
 ## License
 
