@@ -103,8 +103,10 @@ def test_config_schema():
 
 def test_numbers():
     R.NUM_MODE = "skip"
-    keep = {"$5,000,000", "2026", "42", "98%", "GPT-4", "COVID-19", "mp3"}
-    drop = {"10240", "1.0.5", "98:59:49", "e3b0c44298fc", "5,000,000"}
+    keep = {"$5,000,000", "2026", "1999", "42", "7", "98%", "GPT-4", "COVID-19", "mp3"}
+    # 3+ digit bare numbers are dull (ports, statuses, sizes, models) -> skipped
+    drop = {"10240", "1.0.5", "98:59:49", "e3b0c44298fc", "5,000,000",
+            "512", "404", "8080", "3050", "128", "600"}
     for w in keep:
         assert R._speak_number_token(w) == w, f"should keep {w}"
     for w in drop:

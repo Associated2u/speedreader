@@ -176,7 +176,11 @@ CODE_MODE = "describe"
 NUM_MODE = "skip"
 _CURRENCY_UNIT = re.compile(r'[$£€¥%]|(?:dollar|cent|euro|pound|percent)', re.I)
 _YEAR         = re.compile(r'(?:19|20)\d{2}')
-_SMALL_INT    = re.compile(r'\d{1,4}')          # tested with fullmatch, not search
+# Only 1-2 digit bare integers are kept as meaningful spoken counts ("3 files",
+# "42 tests"). 3-4 digit bare numbers in this kind of text are overwhelmingly
+# ports, HTTP statuses, sizes and model numbers - dull to hear - so they are
+# skipped; 4-digit YEARS are rescued by _YEAR above. Tested with fullmatch.
+_SMALL_INT    = re.compile(r'\d{1,2}')
 
 def _filter_numbers(text):
     """Apply the number policy to a plain (non word-synced) span."""
