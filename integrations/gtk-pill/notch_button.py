@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
 """
-readalong button for a custom GTK/cairo pill.
+speedreader button for a custom GTK/cairo pill.
 
 This is the reference integration: a line-drawn glyph with three states,
-driven entirely by the readalong CLI and its pidfile. Nothing here knows how
+driven entirely by the speedreader CLI and its pidfile. Nothing here knows how
 text is read - it only knows how to draw, and which command to spawn.
 
-    left click   -> `readalong --toggle`
-    right click  -> `readalong --settings`
+    left click    -> `speedreader --toggle` (read aloud, or stop)
+    right click   -> `speedreader --toggle --pacer on` (read-along window)
+    middle click  -> `speedreader --settings`
 
 Drop into any pill that gives you a cairo context and a click event:
 
     self.reader = ReaderButton()
     ...in draw():   self.reader.draw(cr, x, pill_h, dim_rgb, green_rgb)
-    ...in click():  self.reader.click(secondary=(ev.button == 3))
+    ...in click():  self.reader.click(button=ev.button)
 """
 import os, subprocess, time, math
 
 READER_W = 20                              # pixels the glyph occupies
-PIDFILE  = os.path.expanduser("~/.local/state/readalong/reading.pid")
+PIDFILE  = os.path.expanduser("~/.local/state/speedreader/reading.pid")
 AMBER    = (0.95, 0.72, 0.25)
 
 
@@ -42,19 +43,17 @@ class ReaderButton:
         return "armed" if time.monotonic() < self._armed_until else "idle"
 
     # ---------------------------------------------------------- actions ---
-    def click(self, secondary: bool = False):
-        if secondary:
-            subprocess.Popen(["readalong", "--settings"], start_new_session=True,
+    def click(self, button: int = 1):
+        if button == 2:
+            subprocess.Popen(["speedreader", "--settings"], start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return
         was_reading = self.reading()
-        subprocess.Popen(["readalong", "--toggle"], start_new_session=True,
+        args = ["--toggle"] + (["--pacer", "on"] if button == 3 else ["--pacer", "off"])
+        subprocess.Popen(["speedreader", *args], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # --toggle arms for up to 25 s; show amber for that window unless it
-        # was a stop.
         self._armed_until = 0.0 if was_reading else time.monotonic() + 25.0
 
-    # ------------------------------------------------------------- draw ---
     def draw(self, cr, bx, pill_h, dim, green):
         """Play triangle with two sound arcs. Call from your draw handler."""
         st  = self.state()

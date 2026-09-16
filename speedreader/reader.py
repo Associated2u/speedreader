@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-readalong - core engine.
+speedreader - core engine.
 
 Point it at text, it starts talking with minimal delay. Extraction and speech
 run concurrently: chunk 1 is already being spoken while chunk 2 is still being
@@ -22,19 +22,18 @@ HOME     = os.path.expanduser("~")
 # project. We read the most recently modified one, whatever project it is.
 PROJGLOB = os.path.join(HOME, ".claude", "projects", "*", "*.jsonl")
 STATEDIR = os.path.join(os.environ.get("XDG_STATE_HOME",
-                                       os.path.join(HOME, ".local/state")), "readalong")
+                                       os.path.join(HOME, ".local/state")), "speedreader")
 os.makedirs(STATEDIR, exist_ok=True)
 
 # Voice, rate, pitch and level live in one file so the notch button, the CLI
 # and the voice lab all agree. Written by `voice-lab.py --set`.
 CONFIG  = os.path.join(os.environ.get("XDG_CONFIG_HOME",
-                                      os.path.join(HOME, ".config")), "readalong", "config.json")
+                                      os.path.join(HOME, ".config")), "speedreader", "config.json")
 # Defaults are what testing settled on, not neutral guesses: the klatt voice
 # stays intelligible at speed where natural-sounding ones smear, and only
 # verbatim can drive the follow-along window. See docs/WHY-KLATT.md.
 DEFAULTS = {"voice": "English (America)+klatt", "rate": 30, "pitch": 0,
             "style": "verbatim", "pacer": "auto",
-            "left_click": "audio",        # what the button does: audio | pacer
             "redact": True, "earcons": True, "code": "describe"}
 
 def load_config() -> dict:
@@ -91,7 +90,7 @@ def redact(text: str) -> tuple[str, int]:
 
 # ================================================================ earcons ==
 SR = 48000                      # A2DP runs 48k stereo; match it, no resampling
-_TMP = tempfile.mkdtemp(prefix="readalong-")
+_TMP = tempfile.mkdtemp(prefix="speedreader-")
 
 def _tone(path, freqs, ms=90, vol=0.26, lead_ms=60):
     n_lead, n = int(SR * lead_ms / 1000), int(SR * ms / 1000)
@@ -284,7 +283,7 @@ class Speaker:
         if not dry:
             import speechd
             self.speechd = speechd
-            self.client = speechd.SSIPClient("readalong")
+            self.client = speechd.SSIPClient("speedreader")
             self.client.set_output_module("espeak-ng")
             self.client.set_punctuation(speechd.PunctuationMode.NONE)
             if self.voice:
@@ -599,7 +598,7 @@ def main():
     import signal
     signal.signal(signal.SIGTERM, _on_term)
     signal.signal(signal.SIGINT, _on_term)
-    ap = argparse.ArgumentParser(description="readalong - speak text, fast")
+    ap = argparse.ArgumentParser(description="SpeedReader - speak text, fast")
     ap.add_argument("source", nargs="?", default="auto",
                     choices=["auto", *SOURCES, "file"], help="where to read from")
     ap.add_argument("--file")
@@ -639,10 +638,6 @@ def main():
         if _running_pid():
             return cmd_stop()
         a.pick = True
-    # The left-click action from the settings window: audio only, or audio +
-    # the follow-along window. CLI --pacer still overrides when given.
-    if a.pacer == _cfg["pacer"] and _cfg.get("left_click") == "pacer":
-        a.pacer = "on"
 
     t0 = time.monotonic()
     if a.pick:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-readalong - the PACER.
+speedreader - the PACER.
 
 The point of this is NOT to replace reading. The audio speaks the compressed
 structure track; this shows the FULL text and lights up the region currently
@@ -55,7 +55,7 @@ def bt_delay_ms(default=0) -> int:
 
 class Pacer(Gtk.Window):
     def __init__(self, text: str, on_close=None, delay_ms=None, header=""):
-        super().__init__(title="readalong")
+        super().__init__(title="SpeedReader")
         self.on_close = on_close
         self.delay    = bt_delay_ms() if delay_ms is None else delay_ms
         self.set_default_size(940, 720)

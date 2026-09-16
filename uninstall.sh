@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-rm -rf "$HOME/.local/share/readalong"
-rm -f "$HOME/.local/bin"/{readalong,readalong-settings,readalong-voices}
-echo "removed. config kept at ~/.config/readalong/ - delete it yourself if you want it gone."
+# stop a running tray first
+"$HOME/.local/bin/speedreader-tray" --quit 2>/dev/null || true
+rm -rf "$HOME/.local/share/speedreader"
+rm -f "$HOME/.local/bin"/{speedreader,speedreader-settings,speedreader-voices,speedreader-tray}
+rm -f "$HOME/.local/share/applications/speedreader-tray.desktop"
+rm -f "$HOME/.config/autostart/speedreader-tray.desktop"
+echo "removed. config kept at ~/.config/speedreader/ - delete it yourself if you want it gone."

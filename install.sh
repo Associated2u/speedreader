@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# readalong installer. No root. Installs into ~/.local only.
+# speedreader installer. No root. Installs into ~/.local only.
 #
 #   bash install.sh          install (or update)
 #   bash uninstall.sh        remove
 set -euo pipefail
 [[ $EUID -ne 0 ]] || { echo "do not run as root - this installs into your own home"; exit 1; }
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SHARE="$HOME/.local/share/readalong"
+SHARE="$HOME/.local/share/speedreader"
 BIN="$HOME/.local/bin"
 
 missing=()
@@ -28,22 +28,46 @@ if ((${#missing[@]})); then
 fi
 
 install -d "$SHARE" "$BIN"
-install -m 0755 "$SRC"/readalong/*.py "$SHARE/"
-for pair in "readalong:reader.py" "readalong-settings:settings.py" "readalong-voices:voice-lab.py"; do
+install -m 0755 "$SRC"/speedreader/*.py "$SHARE/"
+for pair in "speedreader:reader.py" "speedreader-settings:settings.py" \
+            "speedreader-voices:voice-lab.py" "speedreader-tray:tray.py"; do
   name="${pair%%:*}"; target="${pair##*:}"
   printf '#!/usr/bin/env bash\nexec "%s/%s" "$@"\n' "$SHARE" "$target" > "$BIN/$name"
   chmod 0755 "$BIN/$name"
 done
+
+# A desktop entry so the tray shows up in the app menu (and can be added to
+# autostart or a panel). Written to the user's data dir - no root.
+APPS="$HOME/.local/share/applications"
+install -d "$APPS"
+cat > "$APPS/speedreader-tray.desktop" <<DESK
+[Desktop Entry]
+Type=Application
+Name=SpeedReader (tray)
+Comment=Read text aloud with a follow-along window
+Exec=$BIN/speedreader-tray
+Icon=media-playback-start
+Terminal=false
+Categories=Utility;Accessibility;
+DESK
+update-desktop-database "$APPS" >/dev/null 2>&1 || true
 
 case ":$PATH:" in *":$BIN:"*) ;; *) echo "note: $BIN is not on your PATH";; esac
 
 cat <<EOF
 
 installed:
-  readalong            read what is highlighted; else the newest Claude reply; else a window
-  readalong --toggle   start picking (highlight text, or click a window) / stop if reading
-  readalong --settings voice, speed, what left-click does
-  readalong-voices     audition voices, sweep speeds
+  speedreader            read what is highlighted; else the newest Claude reply; else a window
+  speedreader --toggle   start picking (highlight text, or click a window) / stop if reading
+  speedreader --settings voice, speed, level, redaction
+  speedreader-voices     audition voices, sweep speeds
 
-bind --toggle to a button or key and --settings to a right-click. See integrations/.
+Try the tray icon:
+  speedreader-tray                start it (left=read, right=read-along, middle=settings)
+
+Start it automatically at login:
+  ln -s "$APPS/speedreader-tray.desktop" ~/.config/autostart/ 2>/dev/null || \
+    cp "$APPS/speedreader-tray.desktop" ~/.config/autostart/
+
+Or bind the CLI to your own bar / hotkeys - see integrations/.
 EOF

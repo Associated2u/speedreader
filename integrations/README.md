@@ -1,51 +1,56 @@
-# Wiring readalong to your own bar, key or button
+# Wiring SpeedReader to a bar, key, or button
 
-readalong has no UI of its own beyond the follow-along window and the
-settings dialog. It is driven by two commands, so it fits whatever you
-already run:
+The easiest route is the tray icon (`speedreader-tray`) — see the main
+README. This directory is for driving SpeedReader from something you already
+run: a hotkey daemon, a status bar, or a custom panel widget.
 
-| action | command |
+Everything goes through two commands, so the click model is yours to map:
+
+| your action | command |
 |---|---|
-| left click / hotkey | `readalong --toggle` |
-| right click | `readalong --settings` |
+| left | `speedreader --toggle` |
+| right | `speedreader --toggle --pacer on` |
+| middle / hold | `speedreader --settings` |
 
-`--toggle` does the right thing whichever state you are in: if nothing is
-reading it **arms** — highlight some text, or click a window, and it starts;
-if something is reading it **stops**. One button covers start and stop.
-
-Highlight-first also works: select text, then press the button, and it reads
-immediately with no arming step.
+`--toggle` arms if idle (highlight text or click a window and it starts) and
+stops if already reading — one binding covers start and stop. Highlight-first
+works too: select text, then trigger, and it reads immediately.
 
 ## Keyboard shortcut (any desktop)
 
-Bind a key to `readalong --toggle`. On GNOME / Cinnamon that is Settings →
-Keyboard → Shortcuts → Custom. For a second key, `readalong --settings`.
+Bind a key to `speedreader --toggle`, and another to `speedreader --settings`.
+GNOME / Cinnamon: Settings → Keyboard → Shortcuts → Custom.
 
 ## sxhkd
 
 ```
 super + r
-    readalong --toggle
+    speedreader --toggle
 super + shift + r
-    readalong --settings
+    speedreader --toggle --pacer on
+super + ctrl + r
+    speedreader --settings
 ```
 
 ## xbindkeys
 
 ```
-"readalong --toggle"
+"speedreader --toggle"
     Mod4 + r
-"readalong --settings"
+"speedreader --toggle --pacer on"
     Mod4 + shift + r
+"speedreader --settings"
+    Mod4 + control + r
 ```
 
 ## Waybar
 
 ```json
-"custom/readalong": {
+"custom/speedreader": {
     "format": "▷))",
-    "on-click": "readalong --toggle",
-    "on-click-right": "readalong --settings",
+    "on-click": "speedreader --toggle",
+    "on-click-right": "speedreader --toggle --pacer on",
+    "on-click-middle": "speedreader --settings",
     "tooltip": false
 }
 ```
@@ -53,26 +58,28 @@ super + shift + r
 ## Polybar
 
 ```ini
-[module/readalong]
+[module/speedreader]
 type = custom/text
 content = ▷))
-click-left = readalong --toggle
-click-right = readalong --settings
+click-left = speedreader --toggle
+click-right = speedreader --toggle --pacer on
+click-middle = speedreader --settings
 ```
 
 ## Showing state
 
-While a read is running, `~/.local/state/readalong/reading.pid` exists and
-names the process. A bar that wants a "reading" indicator can test that file:
+While a read is running, `~/.local/state/speedreader/reading.pid` exists and
+names the process:
 
 ```bash
-[ -f ~/.local/state/readalong/reading.pid ] && echo reading || echo idle
+[ -f ~/.local/state/speedreader/reading.pid ] && echo reading || echo idle
 ```
 
-## A full example: a button on a custom GTK pill
+## A full example: a button on a custom GTK/cairo panel
 
-`gtk-pill/` is the original integration — a drawn button on a
-top-of-screen pill written in Python and GTK3. It shows a three-state glyph
-(idle / armed / reading), animates while speaking, and routes both mouse
-buttons. It is specific to that pill's drawing code, but the shape of it —
-spawn the CLI, poll the pidfile for state — transfers to any custom bar.
+`gtk-pill/notch_button.py` is the reference — a line-drawn button with three
+states (idle / armed / reading) that animates while speaking and routes all
+three mouse buttons through the CLI. It's the shape used by the pill this tool
+grew out of. Nothing in it knows how text is read; it only draws and spawns.
+The same pattern — spawn the CLI, poll the pidfile for state — fits any custom
+bar.

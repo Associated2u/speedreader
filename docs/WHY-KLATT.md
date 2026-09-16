@@ -1,6 +1,6 @@
 # Why the default voice is a 1980s robot
 
-readalong defaults to espeak-ng's `klatt` variant. It sounds like a
+speedreader defaults to espeak-ng's `klatt` variant. It sounds like a
 computer. That is the point, and it was chosen by ear, not by theory: across
 two rounds of auditioning twenty-two voices, only three stayed intelligible
 at speed — `klatt`, `Alex` and `Storm` — and `klatt` was clearly the best of
@@ -52,4 +52,4 @@ paragraph at once, in parallel. Audio is one phoneme after another, in
 order, forever. So a text-to-speech tool cannot be a speed-reading trainer,
 whatever the voice — the ear is not the vehicle. What it can be is a pacer
 that keeps your place while you read at your own speed, which is what
-readalong is.
+speedreader is.

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-readalong - SETTINGS window.
+speedreader - SETTINGS window.
 
 Right-click the reader button and this opens. Every control writes straight
-to ~/.config/readalong/config.json, which is the single source of truth that the
+to ~/.config/speedreader/config.json, which is the single source of truth that the
 button, the CLI and the voice lab all read - so a change here is live for the
 very next read, no restart.
 
@@ -38,7 +38,7 @@ def wpm(rate):
 
 class Settings(Gtk.Window):
     def __init__(self):
-        super().__init__(title="Reader settings")
+        super().__init__(title="SpeedReader settings")
         self.set_default_size(520, -1)
         self.set_position(Gtk.WindowPosition.MOUSE)
         self.set_keep_above(True)
@@ -95,15 +95,10 @@ class Settings(Gtk.Window):
             self.style[name] = b; sb.pack_start(b, False, False, 0)
         add("Reads", sb, "only <b>verbatim</b> can drive the follow-along window - a skimmed voice leaves the eye nothing to follow")
 
-        # ---- left click ----------------------------------------------------
-        self.left = {}
-        lb = Gtk.Box(spacing=10)
-        a = Gtk.RadioButton.new_with_label(None, "Read aloud")
-        p = Gtk.RadioButton.new_with_label_from_widget(a, "Read aloud + follow-along window")
-        (p if self.cfg.get("left_click") == "pacer" else a).set_active(True)
-        self.left = {"audio": a, "pacer": p}
-        lb.pack_start(a, False, False, 0); lb.pack_start(p, False, False, 0)
-        add("Left click", lb, "right click always opens this window")
+        # A reminder of the fixed click model - not configurable, by request.
+        add("Clicks", Gtk.Label(
+            label="left = read aloud     right = read-along window     middle / hold = these settings",
+            xalign=0), None)
 
         # ---- toggles -------------------------------------------------------
         tb = Gtk.Box(spacing=16)
@@ -115,6 +110,15 @@ class Settings(Gtk.Window):
 
         # ---- buttons -------------------------------------------------------
         bb = Gtk.Box(spacing=8); bb.set_halign(Gtk.Align.END)
+        traypid = os.path.expanduser("~/.local/state/speedreader/tray.pid")
+        try:
+            os.kill(int(open(traypid).read()), 0); tray_alive = True
+        except Exception:
+            tray_alive = False
+        if tray_alive:
+            q = Gtk.Button(label="Quit tray")
+            q.connect("clicked", self._quit_tray)
+            bb.pack_start(q, False, False, 0)
         c = Gtk.Button(label="Cancel"); c.connect("clicked", lambda *_: Gtk.main_quit())
         s = Gtk.Button(label="Save");   s.connect("clicked", self.on_save)
         s.get_style_context().add_class("suggested-action")
@@ -130,7 +134,6 @@ class Settings(Gtk.Window):
             voice=self.voice.get_child().get_text().strip() or R.DEFAULTS["voice"],
             rate=int(self.rate.get_value()), pitch=int(self.pitch.get_value()),
             style=next(k for k, b in self.style.items() if b.get_active()),
-            left_click=next(k for k, b in self.left.items() if b.get_active()),
             redact=self.redact.get_active(), earcons=self.earcons.get_active(),
             code="speak" if self.code.get_active() else "describe")
 
@@ -142,6 +145,15 @@ class Settings(Gtk.Window):
             ["spd-say", "-o", "espeak-ng", "-y", v["voice"],
              "-r", str(v["rate"]), "-p", str(v["pitch"]), SAMPLE],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def _quit_tray(self, _b):
+        import signal
+        try:
+            os.kill(int(open(os.path.expanduser(
+                "~/.local/state/speedreader/tray.pid")).read()), signal.SIGTERM)
+        except Exception:
+            pass
+        Gtk.main_quit()
 
     def on_save(self, _b):
         cfg = R.save_config(**self.values())

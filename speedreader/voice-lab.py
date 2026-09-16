@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-readalong - VOICE LAB.
+speedreader - VOICE LAB.
 
 espeak-ng exposes 816 English voice/accent combinations here. That is useless
 as a menu, so this auditions a curated spread, then lets you sweep rate and

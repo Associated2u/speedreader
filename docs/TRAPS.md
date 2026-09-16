@@ -10,7 +10,7 @@ straight past the fallback. To the user, the button "did nothing".
 
 **Don't send a subprocess's stderr to `/dev/null`.** That is what hid the
 crash above — a traceback and a no-op looked identical. It now writes to
-`~/.local/state/readalong/last.log`, and every run logs its *effective*
+`~/.local/state/speedreader/last.log`, and every run logs its *effective*
 settings, not its intended ones.
 
 **Two sources of truth, and the wrong one wins silently.** The button once

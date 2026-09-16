@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-readalong tests. Plain asserts, no pytest needed:  python3 tests/test_reader.py
+speedreader tests. Plain asserts, no pytest needed:  python3 tests/test_reader.py
 (pytest picks them up too.)
 
 These are the checks that found real bugs during development. Each one is
@@ -10,7 +10,7 @@ import os, sys, json, tempfile, importlib.util
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location(
-    "reader", os.path.join(HERE, "..", "readalong", "reader.py"))
+    "reader", os.path.join(HERE, "..", "speedreader", "reader.py"))
 R = importlib.util.module_from_spec(spec); spec.loader.exec_module(R)
 
 DOC = """## A heading here
@@ -74,7 +74,7 @@ def test_redaction_catches_secrets():
 
 def test_redaction_spares_prose():
     for t in ["MyProject-GDD-v1-1", "bluez_output.98_59_49_F2_0D_ED.1",
-              "/home/user/readalong/readalong/pacer.py", "kernel 7.0.0-31-generic",
+              "/home/user/speedreader/speedreader/pacer.py", "kernel 7.0.0-31-generic",
               "Qwen3-Next-80B-A3B-Instruct", "wireplumber 0.4.17-1ubuntu4.1",
               "commit e836acb on origin/main"]:
         out, n = R.redact(t)
@@ -88,6 +88,15 @@ def test_config_roundtrip():
         assert "bogus" not in cfg
         assert R.load_config()["rate"] == 55
         assert R.load_config()["style"] == R.DEFAULTS["style"]
+
+def test_config_schema():
+    # the click model is fixed (left=audio, right=window, middle/hold=settings),
+    # so there is no left_click key; guard against it creeping back.
+    assert "left_click" not in R.DEFAULTS
+    assert set(R.DEFAULTS) == {"voice", "rate", "pitch", "style", "pacer",
+                               "redact", "earcons", "code"}
+    assert R.DEFAULTS["voice"].endswith("+klatt")
+    assert R.DEFAULTS["style"] == "verbatim"
 
 def test_code_mode():
     R.CODE_MODE = "describe"
